@@ -1,0 +1,9 @@
+config.json
+.env
+.env.*
+!.env.example
+mita-search
+*.test
+coverage.out
+.DS_Store
+__pycache__/

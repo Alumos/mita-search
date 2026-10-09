@@ -1,0 +1,8 @@
+**
+!go.mod
+!main.go
+!config.example.json
+!static/
+!static/**
+!knowledge/
+!knowledge/**

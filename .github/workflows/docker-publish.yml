@@ -1,0 +1,94 @@
+name: Build and publish Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: false
+      - name: Check formatting, test, and vet
+        run: |
+          test -z "$(gofmt -l *.go)"
+          go test -race ./...
+          go vet ./...
+      - name: Validate Compose
+        env:
+          SILICONFLOW_API_KEY: ci-placeholder
+        run: docker compose -f compose.yaml config --quiet
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+      - name: Build and publish complete application
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test published image
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          IMAGE="${IMAGE_NAME}:sha-${COMMIT_SHA:0:7}"
+          docker pull "$IMAGE"
+          docker run -d --name mita-smoke -p 127.0.0.1:8066:8066 \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            -e SILICONFLOW_API_KEY=ci-placeholder "$IMAGE"
+          trap 'docker logs mita-smoke; docker rm -f mita-smoke' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8066/api/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8066/api/health
+          curl --fail --silent http://127.0.0.1:8066/api/kb | python3 -c 'import json,sys; assert json.load(sys.stdin)["count"] > 0'
+          for asset in / /js/app.js /css/style.css /vendor/vue.global.prod.js /vendor/element-plus.full.min.js /vendor/element-plus.css /vendor/element-plus-icons.iife.min.js; do
+            curl --fail --silent "http://127.0.0.1:8066$asset" -o /dev/null
+          done

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>高小铁 AI 助手 · 复兴号知识库</title>
+  <link rel="stylesheet" href="/vendor/element-plus.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='6' y='18' width='40' height='26' rx='6' fill='%23d92b2b'/><rect x='14' y='24' width='14' height='10' rx='3' fill='%23fff'/><circle cx='18' cy='48' r='6' fill='%233a3f47'/><circle cx='36' cy='48' r='6' fill='%233a3f47'/></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- ============ 首页 ============ -->
+    <div class="home" v-if="stage === 'home'">
+      <div class="home-center">
+        <div class="logo-wrap">
+          <div class="logo-main">
+            <svg class="logo-train" viewBox="0 0 64 64" width="60" height="60" aria-hidden="true">
+              <rect x="10" y="12" width="7" height="10" rx="2.5" fill="#f5a623"/>
+              <rect x="6" y="18" width="40" height="26" rx="7" fill="#d92b2b"/>
+              <rect x="44" y="27" width="13" height="17" rx="5" fill="#b71f1f"/>
+              <rect x="14" y="24" width="14" height="11" rx="3" fill="#ffffff"/>
+              <rect x="32" y="24" width="10" height="11" rx="3" fill="#cfe0ff"/>
+              <circle cx="18" cy="48" r="6" fill="#3a3f47"/>
+              <circle cx="36" cy="48" r="6" fill="#3a3f47"/>
+              <circle cx="18" cy="48" r="2.4" fill="#ffffff"/>
+              <circle cx="36" cy="48" r="2.4" fill="#ffffff"/>
+              <rect x="2" y="57" width="60" height="3.5" rx="1.75" fill="#c9cdd4"/>
+            </svg>
+            <span class="logo-name">高小铁</span>
+            <span class="logo-badge">AI 助手</span>
+          </div>
+          <div class="logo-sub">乘上知识高铁，一起探索「复兴号」的秘密 —— 聚焦课本《系统自主可控的重要意义》"做一做"板块</div>
+        </div>
+
+        <div class="search-box" :class="{focused: homeFocus}">
+          <el-icon class="search-icon"><Search /></el-icon>
+          <input
+            v-model="query"
+            class="search-input"
+            type="text"
+            placeholder="搜索关于「复兴号」的一切…"
+            @focus="homeFocus = true"
+            @blur="homeFocus = false"
+            @keydown.enter="doSearch"
+          />
+          <button class="search-btn" @click="doSearch">AI搜索</button>
+        </div>
+
+        <div class="mode-row">
+          <span class="mode-label">搜索模式</span>
+          <el-radio-group v-model="mode" size="small">
+            <el-radio-button value="brief">简洁</el-radio-button>
+            <el-radio-button value="deep">深入</el-radio-button>
+            <el-radio-button value="research">研究</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <div class="hot-questions">
+          <div class="hot-title"><el-icon><Compass /></el-icon> 大家都在问</div>
+          <div class="hot-list">
+            <el-tag
+              v-for="q in hotQuestions" :key="q"
+              class="hot-tag" effect="plain" round
+              @click="query = q; doSearch()"
+            >{{ q }}</el-tag>
+          </div>
+        </div>
+
+        <div class="kb-foot">
+          <el-icon><Collection /></el-icon>
+          知识库已就绪：{{ kbInfo.count }} 条复兴号知识 · {{ (kbInfo.categories||[]).length }} 个分类
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 结果页 ============ -->
+    <div class="result" v-else>
+      <header class="top-bar">
+        <div class="top-logo" @click="backHome" title="返回首页">
+          <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true">
+            <rect x="10" y="12" width="7" height="10" rx="2.5" fill="#f5a623"/>
+            <rect x="6" y="18" width="40" height="26" rx="7" fill="#d92b2b"/>
+            <rect x="44" y="27" width="13" height="17" rx="5" fill="#b71f1f"/>
+            <rect x="14" y="24" width="14" height="11" rx="3" fill="#ffffff"/>
+            <rect x="32" y="24" width="10" height="11" rx="3" fill="#cfe0ff"/>
+            <circle cx="18" cy="48" r="6" fill="#3a3f47"/>
+            <circle cx="36" cy="48" r="6" fill="#3a3f47"/>
+            <rect x="2" y="57" width="60" height="3.5" rx="1.75" fill="#c9cdd4"/>
+          </svg>
+          <span class="top-name">高小铁</span><span class="top-badge">AI 助手</span>
+        </div>
+        <div class="top-search">
+          <el-icon class="ts-icon"><Search /></el-icon>
+          <input v-model="query" class="ts-input" @keydown.enter="doSearch" />
+          <button class="ts-btn" @click="doSearch">AI搜索</button>
+        </div>
+        <div class="top-mode">
+          <el-radio-group v-model="mode" size="small">
+            <el-radio-button value="brief">简洁</el-radio-button>
+            <el-radio-button value="deep">深入</el-radio-button>
+            <el-radio-button value="research">研究</el-radio-button>
+          </el-radio-group>
+        </div>
+      </header>
+
+      <main class="layout">
+        <!-- 左侧：AI 回答 -->
+        <section class="answer-col">
+          <div class="view-tabs">
+            <button :class="{active: view === 'answer'}" @click="view = 'answer'">
+              <el-icon><Document /></el-icon> 回答
+            </button>
+            <button :class="{active: view === 'mindmap'}" @click="openMindmap">
+              <el-icon><Share /></el-icon> 脑图
+            </button>
+            <span class="model-chip" v-if="usedModel">{{ usedModel }}</span>
+          </div>
+
+          <!-- 回答视图 -->
+          <div class="answer-view" v-show="view === 'answer'">
+            <!-- 检索中骨架 -->
+            <template v-if="phase === 'searching'">
+              <div class="phase-tip">
+                <el-icon class="spin"><Loading /></el-icon>
+                正在检索「复兴号」知识库…
+              </div>
+              <el-skeleton :rows="4" animated />
+            </template>
+
+            <template v-else-if="phase === 'generating' || phase === 'done'">
+              <div class="phase-tip ok" v-if="phase === 'generating'">
+                <el-icon class="spin"><Loading /></el-icon>
+                已找到 {{ references.length }} 条资料，AI 正在组织答案…
+              </div>
+              <div class="phase-tip ok" v-else>
+                <el-icon><CircleCheck /></el-icon>
+                共引用 {{ references.length }} 条资料 · 用时 {{ elapsed }}s
+              </div>
+              <article class="md-body" v-html="renderedHTML"></article>
+              <span class="cursor" v-if="phase === 'generating'"></span>
+            </template>
+
+            <template v-else-if="phase === 'error'">
+              <el-alert type="error" :title="errorMsg" show-icon :closable="false" />
+              <div class="retry-row">
+                <el-button type="primary" round @click="doSearch">重新搜索</el-button>
+              </div>
+            </template>
+
+            <!-- 接着问 -->
+            <div class="next-asks" v-if="phase === 'done'">
+              <div class="next-title">接着问</div>
+              <div class="next-list">
+                <div class="next-item" v-for="q in nextAsks" :key="q" @click="query = q; doSearch()">
+                  <el-icon><ChatDotRound /></el-icon>{{ q }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 脑图视图 -->
+          <div class="mindmap-view" v-show="view === 'mindmap'">
+            <div class="mindmap-tip" v-if="!mindmapSVG">回答生成后即可生成脑图</div>
+            <div class="mindmap-canvas" v-html="mindmapSVG"></div>
+          </div>
+        </section>
+
+        <!-- 右侧：参考来源 -->
+        <aside class="ref-col">
+          <div class="ref-head">
+            <el-icon><Files /></el-icon> 参考来源
+            <el-tag size="small" type="info" effect="plain" round>{{ references.length }}</el-tag>
+          </div>
+          <div class="ref-skeleton" v-if="phase === 'searching'">
+            <el-skeleton :rows="2" animated style="margin-bottom:14px" />
+            <el-skeleton :rows="2" animated style="margin-bottom:14px" />
+            <el-skeleton :rows="2" animated />
+          </div>
+          <div class="ref-list" v-else>
+            <div class="ref-card" v-for="(ref, i) in references" :key="ref.item.id" @click="toggleRef(i)" :class="{open: openRef === i}">
+              <div class="ref-top">
+                <span class="ref-no">{{ i + 1 }}</span>
+                <span class="ref-title">{{ ref.item.title }}</span>
+              </div>
+              <div class="ref-meta">
+                <span class="ref-cat">{{ ref.item.category }}</span>
+                <span class="ref-src">来源：{{ ref.item.source }}</span>
+              </div>
+              <div class="ref-content" v-show="openRef === i">{{ ref.item.content }}</div>
+            </div>
+            <div class="ref-empty" v-if="!references.length && phase === 'done'">
+              未检索到相关资料
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </div>
+
+  <script src="/vendor/vue.global.prod.js"></script>
+  <script src="/vendor/element-plus.full.min.js"></script>
+  <script src="/vendor/element-plus-icons.iife.min.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

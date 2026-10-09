@@ -1,0 +1,11 @@
+{
+  "listen_port": 8066,
+  "siliconflow": {
+    "api_key": "",
+    "base_url": "https://api.siliconflow.cn/v1/chat/completions",
+    "model": "Qwen/Qwen3.5-27B",
+    "fallback_models": ["Qwen/Qwen2.5-72B-Instruct", "Qwen/Qwen2.5-7B-Instruct"],
+    "max_tokens": 3000,
+    "temperature": 0.5
+  }
+}

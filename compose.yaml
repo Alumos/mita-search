@@ -1,0 +1,27 @@
+name: mita-search
+
+services:
+  mita-search:
+    image: ghcr.io/alumos/mita-search:latest
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${MITA_PORT:-8066}:8066"
+    environment:
+      LISTEN_PORT: "8066"
+      TZ: Asia/Shanghai
+      SILICONFLOW_API_KEY: "${SILICONFLOW_API_KEY:?请填写 SiliconFlow API Key}"
+      SILICONFLOW_BASE_URL: "${SILICONFLOW_BASE_URL:-https://api.siliconflow.cn/v1/chat/completions}"
+      SILICONFLOW_MODEL: "${SILICONFLOW_MODEL:-Qwen/Qwen3.5-27B}"
+      SILICONFLOW_FALLBACK_MODELS: "${SILICONFLOW_FALLBACK_MODELS-Qwen/Qwen2.5-72B-Instruct,Qwen/Qwen2.5-7B-Instruct}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8066/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
