@@ -1,6 +1,7 @@
 **
 !go.mod
 !main.go
+!task_table.go
 !config.example.json
 !static/
 !static/**
