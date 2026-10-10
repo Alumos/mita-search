@@ -12,10 +12,11 @@
 
 ## 功能特性
 
-- 🚄 **"高小铁"品牌界面**：首页大搜索框、简洁/深入/研究三种模式、结果页"回答 + 脑图"双视图、右侧参考来源侧栏、"接着问"推荐、回答内 [1][2] 引用角标；全局大字号排版，适配 1920×1080
-- 🧠 **RAG 检索增强**：内置 23 条经核实的复兴号知识（来源：新华社、人民日报、央视网、国铁集团等权威渠道），基于加权关键词检索后注入大模型上下文，杜绝幻觉
+- 🚄 **"高小铁"品牌界面**：首页大搜索框、简洁/深入/研究三种模式、结果页流式讲解与完整任务表、右侧参考来源侧栏、"接着问"推荐、回答内 [1][2] 引用角标；全局大字号排版，适配 1920×1080
+- 🧠 **RAG 检索增强**：内置 39 条课本要求与复兴号知识素材（报道来源：新华社、人民日报、中新社、央视网等），记录报道和核验日期；关键词检索后补齐任务表必需来源，约束模型依据资料作答
 - ⚡ **流式输出 + 稳定性保障**：SSE 逐字生成；Qwen3 系思考模型自动 `enable_thinking: false` 关闭思考链；**45 秒首字看门狗**，超时自动切换备用模型
-- ✂️ **字数/Token 控制**：简洁 ≤250 字（400 tok）、深入 ≤550 字（850 tok）、研究 ≤900 字（1400 tok），提示词与 max_tokens 双重限制，避免浪费
+- 📋 **完整任务表**：每次成功回答都以“自主建造｜自主研发｜优点”三列表格收尾，保留课本六个示例；简洁/深入/研究分别提供 3/4/5 行，扩展项随问题重点调整。表格由已核验素材生成，附来源编号，不依赖模型遵守表格格式。
+- ✂️ **讲解长度控制**：简洁约120–180字（600 tok）、深入约250–400字（1100 tok）、研究约450–650字（1800 tok）；任务表另行追加，不占模型输出额度。
 - 🔒 **密钥安全**：API Key 仅存于服务端 `config.json`，前端不接触任何密钥
 - 📦 **零构建依赖**：前端组件库（Vue3 / Element Plus / 图标库）已全部本地化到 `static/vendor/`，无需 Node 构建和外部 CDN
 
@@ -24,15 +25,18 @@
 ```
 mita-search/
 ├── main.go                  # Go 后端（静态服务 + 检索 + SSE 流式 RAG）
+├── task_table.go            # 任务素材校验、按问题选择扩展项、生成末尾表格
+├── task_table_test.go       # 表格完整性、来源与流式接口测试
 ├── go.mod
 ├── config.json              # 端口 / SiliconFlow 密钥与模型配置（勿公开！）
 ├── stress_test.py           # 并发压测脚本（模拟 N 台学生机同时提问）
 ├── knowledge/
-│   └── knowledge_base.json  # 复兴号知识库（23 条，含"做一做"表格参考素材）
+│   ├── SOURCES.md           # 联网核验来源与数据使用边界
+│   └── knowledge_base.json  # 复兴号知识库（39 条，含课文要求与结构化填表素材）
 └── static/
     ├── index.html           # 单页前端
     ├── css/style.css
-    ├── js/app.js            # 搜索 / Markdown 渲染 / SVG 脑图
+    ├── js/app.js            # 搜索 / Markdown 渲染 / 流式状态管理
     └── vendor/              # 本地化的 Vue3 + Element Plus
 ```
 
@@ -71,7 +75,7 @@ go build -o mita-search .
 python3 stress_test.py 50   # 可自定义并发数
 ```
 
-实测报告（Qwen3.5-27B，50 并发混合模式同时提问）：
+原版本历史实测报告（Qwen3.5-27B，50 并发；不代表本次知识库和任务表改版后的性能）：
 
 | 指标 | 结果 |
 |------|------|
@@ -106,10 +110,24 @@ location / {
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/search` | POST | `{query, mode}` → SSE 流：`meta` / `references` / `delta` / `done` / `error` |
+| `/api/search` | POST | `{query, mode}` → SSE 流：`meta` / `references` / `delta` / `retry` / `done` / `error` |
 | `/api/kb` | GET | 知识库元信息（名称、条数、分类） |
 | `/api/health` | GET | 健康检查 |
 
 ## 知识库维护
 
-直接编辑 `knowledge/knowledge_base.json` 增删条目即可，每条包含 `title / category / content / keywords / source / url`，检索算法会自动按标题、关键词、正文加权匹配。所有条目均可溯源，符合课本"自主可控"主题与事实准确性要求。
+编辑 `knowledge/knowledge_base.json` 的 `items`；每条包含 `id / title / category / content / keywords / source / url / published_at / verified_at`。课文要求单独标记为用户提供的教材内容，不伪装成网络报道。原文核验清单见 [knowledge/SOURCES.md](knowledge/SOURCES.md)。
+
+`task_columns` 分别配置自主建造、自主研发、优点三栏素材，每栏前两项必须是课本示例，每栏至少5项。每项含 `text / detail / reference_ids / keywords`；引用须指向真实知识条目。启动时校验这些约束，缺失素材或无效引用会报错。选出的表格来源会补入模型上下文和页面来源列表。
+
+三栏是按课本分类分别列举，不表示同行存在一一对应关系。“自主建造”与“自主研发”也不是互斥过程。数据使用须区分车型、报道时间、试验和运营；例如2018年京沈现场试验与2019年京张自动驾驶应用要分别表述。
+
+## 验证
+
+```bash
+go test -race ./...
+go vet ./...
+node --test tests/frontend.test.cjs
+```
+
+Go 测试使用本地模拟上游，不需要真实 API Key；前端回归测试只需 Node.js 18+，无额外依赖。实际模型的讲解效果需配置 SiliconFlow API Key 后验证。

@@ -30,7 +30,7 @@
             <span class="logo-name">高小铁</span>
             <span class="logo-badge">AI 助手</span>
           </div>
-          <div class="logo-sub">乘上知识高铁，一起探索「复兴号」的秘密 —— 聚焦课本《系统自主可控的重要意义》"做一做"板块</div>
+          <div class="logo-sub">探索复兴号的自主创新，完成第3课“做一做”任务表</div>
         </div>
 
         <div class="search-box" :class="{focused: homeFocus}">
@@ -39,7 +39,7 @@
             v-model="query"
             class="search-input"
             type="text"
-            placeholder="搜索关于「复兴号」的一切…"
+            placeholder="查找自主创新实例，完成课本任务表…"
             @focus="homeFocus = true"
             @blur="homeFocus = false"
             @keydown.enter="doSearch"
@@ -57,7 +57,7 @@
         </div>
 
         <div class="hot-questions">
-          <div class="hot-title"><el-icon><Compass /></el-icon> 大家都在问</div>
+          <div class="hot-title"><el-icon><Compass /></el-icon> 围绕课本任务，选一个角度开始</div>
           <div class="hot-list">
             <el-tag
               v-for="q in hotQuestions" :key="q"
@@ -66,6 +66,8 @@
             >{{ q }}</el-tag>
           </div>
         </div>
+
+        <p class="task-hint">先读讲解，再填表：自主建造 · 自主研发 · 优点<br />简洁、深入、研究模式分别提供 3、4、5 行整理答案。</p>
 
         <div class="kb-foot">
           <el-icon><Collection /></el-icon>
@@ -107,18 +109,13 @@
       <main class="layout">
         <!-- 左侧：AI 回答 -->
         <section class="answer-col">
-          <div class="view-tabs">
-            <button :class="{active: view === 'answer'}" @click="view = 'answer'">
-              <el-icon><Document /></el-icon> 回答
-            </button>
-            <button :class="{active: view === 'mindmap'}" @click="openMindmap">
-              <el-icon><Share /></el-icon> 脑图
-            </button>
+          <div class="answer-header">
+            <span class="answer-label"><el-icon><Document /></el-icon> 回答与任务表</span>
             <span class="model-chip" v-if="usedModel">{{ usedModel }}</span>
           </div>
 
           <!-- 回答视图 -->
-          <div class="answer-view" v-show="view === 'answer'">
+          <div class="answer-view">
             <!-- 检索中骨架 -->
             <template v-if="phase === 'searching'">
               <div class="phase-tip">
@@ -131,11 +128,11 @@
             <template v-else-if="phase === 'generating' || phase === 'done'">
               <div class="phase-tip ok" v-if="phase === 'generating'">
                 <el-icon class="spin"><Loading /></el-icon>
-                已找到 {{ references.length }} 条资料，AI 正在组织答案…
+                已找到 {{ references.length }} 条资料，AI 正在组织讲解，随后整理课本任务表…
               </div>
               <div class="phase-tip ok" v-else>
                 <el-icon><CircleCheck /></el-icon>
-                共引用 {{ references.length }} 条资料 · 用时 {{ elapsed }}s
+                参考 {{ references.length }} 条资料 · 任务表已完成 · 用时 {{ elapsed }}s
               </div>
               <article class="md-body" v-html="renderedHTML"></article>
               <span class="cursor" v-if="phase === 'generating'"></span>
@@ -159,11 +156,6 @@
             </div>
           </div>
 
-          <!-- 脑图视图 -->
-          <div class="mindmap-view" v-show="view === 'mindmap'">
-            <div class="mindmap-tip" v-if="!mindmapSVG">回答生成后即可生成脑图</div>
-            <div class="mindmap-canvas" v-html="mindmapSVG"></div>
-          </div>
         </section>
 
         <!-- 右侧：参考来源 -->
@@ -186,6 +178,8 @@
               <div class="ref-meta">
                 <span class="ref-cat">{{ ref.item.category }}</span>
                 <span class="ref-src">来源：{{ ref.item.source }}</span>
+                <span v-if="ref.item.published_at">报道日期：{{ ref.item.published_at }}</span>
+                <a v-if="ref.item.url" :href="ref.item.url" target="_blank" rel="noopener noreferrer" @click.stop>阅读原文 ↗</a>
               </div>
               <div class="ref-content" v-show="openRef === i">{{ ref.item.content }}</div>
             </div>
