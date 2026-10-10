@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"sort"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -59,95 +60,122 @@ func (kb *KnowledgeBase) validateTaskColumns() error {
 	return nil
 }
 
-func taskRowCount(mode string) int {
-	switch mode {
-	case "brief":
-		return 3
-	case "research":
-		return 5
-	default:
-		return 4
-	}
-}
-
-func selectCells(cells []TaskCell, query string, count int) []TaskCell {
-	// 复制再排序，避免并发搜索改变共享知识库。
-	selected := append([]TaskCell(nil), cells[:2]...)
-	extra := append([]TaskCell(nil), cells[2:]...)
-	q := strings.ToLower(query)
-	score := func(cell TaskCell) int {
-		n := 0
-		for _, word := range cell.Keywords {
-			if word != "" && strings.Contains(q, strings.ToLower(word)) {
-				n++
-			}
+// 既有知识库保持不变，检索时跳过教学说明条目，不提供预制答案。
+func (kb *KnowledgeBase) taskReferences(query, mode string) []ScoredItem {
+	ranked := kb.Search(query, len(kb.Items))
+	refs := []ScoredItem{}
+	seen := map[string]bool{}
+	add := func(item KnowledgeItem, score float64) {
+		if item.ID == "zuoyizuo-table" || seen[item.ID] {
+			return
 		}
-		return n
+		// 只调整展示用副本，知识库文件和原始条目保持不变。
+		item.Title = strings.NewReplacer("（课本重点）", "", "课本", "学习任务").Replace(item.Title)
+		item.Category = strings.ReplaceAll(item.Category, "课本", "学习")
+		item.Content = strings.ReplaceAll(item.Content, "课本", "学习任务")
+		item.Keywords = nil
+		refs = append(refs, ScoredItem{Item: item, Score: score})
+		seen[item.ID] = true
 	}
-	sort.SliceStable(extra, func(i, j int) bool { return score(extra[i]) > score(extra[j]) })
-	return append(selected, extra[:count-2]...)
-}
-
-func (kb *KnowledgeBase) selectTaskColumns(query, mode string) TaskColumns {
-	n := taskRowCount(mode)
-	return TaskColumns{
-		Construction: selectCells(kb.TaskColumns.Construction, query, n),
-		Research:     selectCells(kb.TaskColumns.Research, query, n),
-		Advantages:   selectCells(kb.TaskColumns.Advantages, query, n),
+	for _, r := range ranked {
+		add(r.Item, r.Score)
+		if len(refs) >= topKForMode(mode) {
+			break
+		}
 	}
-}
-
-func (kb *KnowledgeBase) taskReferences(query, mode string, columns TaskColumns) []ScoredItem {
-	refs := kb.Search(query, topKForMode(mode))
-	seen := make(map[string]bool)
-	for _, ref := range refs {
-		seen[ref.Item.ID] = true
-	}
-	byID := make(map[string]KnowledgeItem)
+	// 所有已有事实条目均可供模型选材，不再被少量结构化模板素材限制。
 	for _, item := range kb.Items {
-		byID[item.ID] = item
-	}
-	appendRef := func(id string) {
-		if !seen[id] {
-			refs = append(refs, ScoredItem{Item: byID[id]})
-			seen[id] = true
-		}
-	}
-	// 窄问题也需要覆盖整个任务表，不能只依赖相关性排名。
-	appendRef("zuoyizuo-table")
-	appendRef("why-fuxing")
-	for _, cells := range columns.all() {
-		for _, cell := range cells {
-			for _, id := range cell.ReferenceIDs {
-				appendRef(id)
-			}
-		}
+		add(item, 0)
 	}
 	return refs
 }
 
-func buildTaskTable(columns TaskColumns, refs []ScoredItem, mode string) string {
-	numbers := make(map[string]int)
-	for i, ref := range refs {
-		numbers[ref.Item.ID] = i + 1
+var tableStart = regexp.MustCompile(`(?m)^[ \t]*\|`)
+var citation = regexp.MustCompile(`\[(\d+)\]`)
+
+func parseTableRow(line string) []string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+		return nil
 	}
-	cellText := func(cell TaskCell) string {
-		text := cell.Text
-		if mode != "brief" {
-			text += "：" + cell.Detail
+	cells := strings.Split(strings.TrimSuffix(strings.TrimPrefix(line, "|"), "|"), "|")
+	for i := range cells {
+		cells[i] = strings.TrimSpace(cells[i])
+	}
+	return cells
+}
+
+// 模型负责生成所有内容；这里只合并意外重复的三列表格，不补写固定答案。
+func normalizeAnswer(raw string, referenceCount int) (string, error) {
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	prose := []string{}
+	rows := []string{}
+	seen := map[string]bool{}
+	core := [2]bool{}
+	for i := 0; i < len(lines); {
+		if !strings.HasPrefix(strings.TrimSpace(lines[i]), "|") {
+			prose = append(prose, lines[i])
+			i++
+			continue
 		}
-		text = strings.NewReplacer("|", "／", "\n", " ", "\r", " ").Replace(text)
-		for _, id := range cell.ReferenceIDs {
-			text += fmt.Sprintf("[%d]", numbers[id])
+		header := parseTableRow(lines[i])
+		if len(header) != 3 || strings.Join(header, "|") != "自主建造|自主研发|优点" {
+			return "", fmt.Errorf("回答包含非目标表格")
 		}
-		return text
+		i++
+		if i >= len(lines) {
+			return "", fmt.Errorf("表格缺少分隔行")
+		}
+		separator := parseTableRow(lines[i])
+		if len(separator) != 3 {
+			return "", fmt.Errorf("表格分隔行无效")
+		}
+		for _, c := range separator {
+			if len(strings.Trim(c, ":")) < 3 || strings.Trim(c, "-:") != "" {
+				return "", fmt.Errorf("表格分隔行无效")
+			}
+		}
+		i++
+		for i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "|") {
+			cells := parseTableRow(lines[i])
+			if strings.Join(cells, "|") == "自主建造|自主研发|优点" {
+				break // 连续的第二张表可能没有空行。
+			}
+			i++
+			if len(cells) != 3 {
+				return "", fmt.Errorf("表格行不完整")
+			}
+			for _, c := range cells {
+				if c == "" || c == "待补充" || c == "同上" {
+					return "", fmt.Errorf("表格含空白或占位答案")
+				}
+			}
+			for _, m := range citation.FindAllStringSubmatch(strings.Join(cells, " "), -1) {
+				n, _ := strconv.Atoi(m[1])
+				if n < 1 || n > referenceCount {
+					return "", fmt.Errorf("表格来源编号无效")
+				}
+			}
+			key := strings.ReplaceAll(citation.ReplaceAllString(strings.Join(cells, "|"), ""), "**", "")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if strings.Contains(cells[0], "网络控制系统") && strings.Contains(cells[1], "车体") && strings.Contains(cells[2], "安全") {
+				core[0] = true
+			}
+			if strings.Contains(cells[0], "牵引传动系统") && strings.Contains(cells[1], "转向架") && strings.Contains(cells[2], "智能") {
+				core[1] = true
+			}
+			rows = append(rows, "| "+strings.Join(cells, " | ")+" |")
+		}
 	}
-	var b strings.Builder
-	b.WriteString("\n\n## 课本任务表：“复兴号”动车组列车的自主创新及其优点\n\n")
-	b.WriteString("三栏分别列举，保留课本示例并补充资料；同一行不表示一一对应的因果关系。\n\n")
-	b.WriteString("| 自主建造 | 自主研发 | 优点 |\n| --- | --- | --- |\n")
-	for i := range columns.Construction {
-		fmt.Fprintf(&b, "| %s | %s | %s |\n", cellText(columns.Construction[i]), cellText(columns.Research[i]), cellText(columns.Advantages[i]))
+	if len(rows) < 3 || !core[0] || !core[1] {
+		return "", fmt.Errorf("回答未保留已有示例并提供补充答案")
 	}
-	return b.String()
+	answer := strings.TrimSpace(strings.Join(prose, "\n")) + "\n\n| 自主建造 | 自主研发 | 优点 |\n| --- | --- | --- |\n" + strings.Join(rows, "\n") + "\n"
+	if strings.Contains(answer, "课本") || strings.Contains(answer, "教材") {
+		return "", fmt.Errorf("回答包含不适合展示的教学提示")
+	}
+	return answer, nil
 }

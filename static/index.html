@@ -30,7 +30,7 @@
             <span class="logo-name">高小铁</span>
             <span class="logo-badge">AI 助手</span>
           </div>
-          <div class="logo-sub">探索复兴号的自主创新，完成第3课“做一做”任务表</div>
+          <div class="logo-sub">探索复兴号智能高铁，发现关键核心技术的自主创新成果</div>
         </div>
 
         <div class="search-box" :class="{focused: homeFocus}">
@@ -39,7 +39,7 @@
             v-model="query"
             class="search-input"
             type="text"
-            placeholder="查找自主创新实例，完成课本任务表…"
+            placeholder="输入关键词，探索复兴号科技成果…"
             @focus="homeFocus = true"
             @blur="homeFocus = false"
             @keydown.enter="doSearch"
@@ -57,7 +57,7 @@
         </div>
 
         <div class="hot-questions">
-          <div class="hot-title"><el-icon><Compass /></el-icon> 围绕课本任务，选一个角度开始</div>
+          <div class="hot-title"><el-icon><Compass /></el-icon> 试试这些搜索关键词</div>
           <div class="hot-list">
             <el-tag
               v-for="q in hotQuestions" :key="q"
@@ -67,7 +67,7 @@
           </div>
         </div>
 
-        <p class="task-hint">先读讲解，再填表：自主建造 · 自主研发 · 优点<br />简洁、深入、研究模式分别提供 3、4、5 行整理答案。</p>
+        <p class="task-hint">从技术、试验、应用等角度查找成果，发现自主创新带来的改变。</p>
 
         <div class="kb-foot">
           <el-icon><Collection /></el-icon>
@@ -110,7 +110,7 @@
         <!-- 左侧：AI 回答 -->
         <section class="answer-col">
           <div class="answer-header">
-            <span class="answer-label"><el-icon><Document /></el-icon> 回答与任务表</span>
+            <span class="answer-label"><el-icon><Document /></el-icon> 回答与成果整理</span>
             <span class="model-chip" v-if="usedModel">{{ usedModel }}</span>
           </div>
 
@@ -128,11 +128,11 @@
             <template v-else-if="phase === 'generating' || phase === 'done'">
               <div class="phase-tip ok" v-if="phase === 'generating'">
                 <el-icon class="spin"><Loading /></el-icon>
-                已找到 {{ references.length }} 条资料，AI 正在组织讲解，随后整理课本任务表…
+                已找到 {{ references.length }} 条资料，AI 正在梳理创新成果…
               </div>
               <div class="phase-tip ok" v-else>
                 <el-icon><CircleCheck /></el-icon>
-                参考 {{ references.length }} 条资料 · 任务表已完成 · 用时 {{ elapsed }}s
+                参考 {{ references.length }} 条资料 · 成果整理完成 · 用时 {{ elapsed }}s
               </div>
               <article class="md-body" v-html="renderedHTML"></article>
               <span class="cursor" v-if="phase === 'generating'"></span>

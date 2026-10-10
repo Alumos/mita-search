@@ -25,22 +25,26 @@ createApp({
     const kbInfo = reactive({ count: 0, categories: [] });
 
     const hotQuestions = [
-      '完成课本任务表：复兴号的自主建造、自主研发及优点',
-      '从“中国脑”和“中国心”理解自主创新，再整理任务表',
-      '车体、转向架有哪些创新？说明优点并完成三栏表',
-      '2018年京沈自动驾驶试验说明了什么？结合课文填表',
-      '用身边的乘车体验解释安全、智能、舒适和节能，再填表',
-      '为什么关键核心技术要自主可控？用复兴号实例完成表格',
+      '复兴号 关键核心技术 自主创新 阶段性成果',
+      '复兴号 智能高铁 自动驾驶',
+      '2018 京沈高铁 自动驾驶试验',
+      '复兴号 中国脑 中国心',
+      '复兴号 自主研发 安全 智能',
+      '复兴号 科技创新 自主可控',
     ];
     const allNextAsks = [
-      '用简明语言整理完整任务表，保留课本六个示例并补充实例',
-      '网络控制系统如何体现自主可控？解释后完成任务表',
-      '牵引传动系统为什么叫“中国心”？把创新与优点整理成表',
-      '车体的轻量化、流线型设计有哪些优点？结合课本填表',
-      '转向架如何帮助列车安全平稳运行？补全课本三栏表',
-      '对照2018年京沈试验和2019年京张应用，再完成任务表',
-      '复兴号如何通过监测和远程维护保障运行？整理完整表格',
-      '自主创新怎样改善生活、支撑国家安全？用任务表归纳',
+      '复兴号 网络控制系统 自主研发',
+      '复兴号 牵引传动系统 核心技术',
+      '京沈高铁 试验 京张高铁 自动驾驶应用',
+      '复兴号 车体 转向架 技术创新',
+      '复兴号 故障预测 健康管理',
+      '复兴号 地震预警 安全防护',
+      '复兴号 节能环保 减振降噪',
+      '复兴号 智能运维 远程监测',
+      '复兴号 仿真测试 软件开发平台',
+      '复兴号 中国标准 互联互通',
+      '复兴号 高原应用 定制化创新',
+      '复兴号 关键核心技术 自主可控 意义',
     ];
 
     let nextAsks = ref([]);
@@ -96,7 +100,7 @@ createApp({
             const parseRow = (r) => r.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
             const head = parseRow(rows[0]);
             const body = rows.slice(2).map(parseRow);
-            html += '<div class="table-scroll" tabindex="0" role="region" aria-label="任务表，可横向滚动"><table><thead><tr>' + head.map(h => `<th>${inline(h)}</th>`).join('') + '</tr></thead><tbody>';
+            html += '<div class="table-scroll" tabindex="0" role="region" aria-label="创新成果表，可横向滚动"><table><thead><tr>' + head.map(h => `<th>${inline(h)}</th>`).join('') + '</tr></thead><tbody>';
             for (const r of body) html += '<tr>' + r.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>';
             html += '</tbody></table></div>';
           } else {
@@ -200,6 +204,8 @@ createApp({
             references.value = data || [];
           } else if (event === 'delta') {
             rawMD.value += data.t || '';
+          } else if (event === 'answer') {
+            rawMD.value = data.t || '';
           } else if (event === 'done') {
             usedModel.value = data.model || '';
             completed = true;

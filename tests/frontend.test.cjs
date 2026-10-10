@@ -37,7 +37,7 @@ test('streaming answer clears failed model text and renders final table after th
   const state = app(async () => stream(
     event('delta', { t: '失败模型的半截回答' }) + event('retry', { model: 'first' }) +
     event('delta', { t: '# 复兴号\n- 自主创新[1]\n' }) +
-    event('delta', { t: '| 自主建造 | 自主研发 | 优点 |\n| --- | --- | --- |\n| 网络控制系统[1] | 车体 | 安全 |\n| 牵引传动系统 | 转向架 | 智能 |\n| 制动系统 | 低阻力外形 | 节能环保 |\n' }) +
+    event('answer', { t: '# 复兴号\n- 自主创新[1]\n| 自主建造 | 自主研发 | 优点 |\n| --- | --- | --- |\n| 网络控制系统[1] | 车体 | 安全 |\n| 牵引传动系统 | 转向架 | 智能 |\n| 制动系统 | 低阻力外形 | 节能环保 |\n' }) +
     event('done', { model: 'second' })
   ));
   state.query.value = '复兴号';
