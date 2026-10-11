@@ -191,7 +191,9 @@ createApp({
           signal: requestCtrl.signal,
         });
         if (abortCtrl !== requestCtrl) return;
-        if (!resp.ok) throw new Error('服务返回 ' + resp.status);
+        if (!resp.ok) throw new Error(resp.status === 504
+          ? '网关等待超时（HTTP 504），请检查反向代理读取超时设置'
+          : '搜索服务返回 HTTP ' + resp.status);
 
         phase.value = 'generating';
         const reader = resp.body.getReader();
@@ -239,7 +241,7 @@ createApp({
         }
 
         if (abortCtrl !== requestCtrl) return;
-        if (phase.value !== 'error' && !completed) throw new Error('回答连接中断，请重新搜索');
+        if (phase.value !== 'error' && !completed) throw new Error('回答连接中断，尚未收到完成标记；请重试，若持续发生请检查反向代理和容器日志');
         if (phase.value !== 'error') {
           phase.value = 'done';
           elapsed.value = ((Date.now() - t0) / 1000).toFixed(1);
@@ -247,7 +249,9 @@ createApp({
         }
       } catch (err) {
         if (err.name === 'AbortError' || abortCtrl !== requestCtrl) return;
-        errorMsg.value = '网络错误：' + err.message;
+        errorMsg.value = err instanceof TypeError
+          ? '搜索连接中断或无法建立，请检查网络、反向代理及容器日志后重试。'
+          : err.message;
         phase.value = 'error';
       }
     }

@@ -234,11 +234,39 @@ func writeSSE(w http.ResponseWriter, event string, payload interface{}) {
 
 // ---------- 系统提示词 ----------
 
+// Serialize heartbeat and content writes; stop and join before the handler returns.
+func startEventStream(ctx context.Context, w http.ResponseWriter, interval time.Duration) (func(string, interface{}), func()) {
+	var mu sync.Mutex
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	send := func(event string, payload interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
+		writeSSE(w, event, payload)
+	}
+	go func() {
+		defer close(exited)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				send("ping", map[string]string{"status": "generating"})
+			}
+		}
+	}()
+	return send, func() { close(done); <-exited }
+}
+
 func buildSystemPrompt(mode string) string {
 	base := `你是“高小铁”，帮助学生检索、理解和归纳复兴号智能高铁自主创新成果。
 【学习任务】
 学生要查阅“复兴号智能高铁关键核心技术自主创新取得了哪些阶段性成果”，并补充《“复兴号”动车组列车的自主创新及其优点》表格。
-表格三栏为“自主建造｜自主研发｜优点”。题目已给出两行：网络控制系统｜车体｜安全；牵引传动系统｜转向架｜智能。它们只是起点，学生的主要工作是根据检索所得增加其他实例、具体成果和优点。
+表格三栏为“自主建造｜自主研发｜优点”。题目已给出两行：网络控制系统｜车体｜安全；牵引传动系统｜转向架｜智能。它们只是起点，学生的主要工作是根据检索所得增加其他实例、具体成果和优点。先用一至三个短段落直答问题，尽早进入表格；不要写长篇铺垫。
 【回答要求】
 1. 先围绕用户的搜索关键词直接讲解。说明“什么技术、取得什么进展、在哪个阶段、有何价值”，有可靠日期或应用场景时再写，不给没有日期的资料编造年份。联系掌握关键核心技术、发展主动权、国家安全与美好生活，避免每次使用同一段结语。
 2. 最后只输出一张多行Markdown表格，表头严格为“自主建造｜自主研发｜优点”。前两行保留题目给定示例，随后由你根据本次搜索与资料自由归纳多行补充答案。不能只复述已有两行；不要分别生成“成果表”“示例表”“补充表”“总结表”，讲解部分也不要用表格。表格后不再追加文字。
@@ -263,11 +291,11 @@ func buildSystemPrompt(mode string) string {
 func maxTokensForMode(mode string) int {
 	switch mode {
 	case "brief":
-		return 2000
+		return 1600
 	case "research":
-		return 6000
-	default:
 		return 4000
+	default:
+		return 2800
 	}
 }
 
@@ -299,7 +327,7 @@ type chatRequest struct {
 
 // streamLLM 调用 SiliconFlow，把每个增量文本写入 onDelta；出错返回 error。
 // 含首字看门狗：firstTokenTimeout 内没有任何正文输出则中断（自动换下一个模型）。
-func streamLLM(cfg *SiliconFlowConfig, model string, messages []chatMessage, maxTokens int, firstTokenTimeout time.Duration, onDelta func(string)) error {
+func streamLLM(parent context.Context, cfg *SiliconFlowConfig, model string, messages []chatMessage, maxTokens int, firstTokenTimeout time.Duration, onDelta func(string)) error {
 	req := chatRequest{
 		Model:       model,
 		Messages:    messages,
@@ -314,7 +342,7 @@ func streamLLM(cfg *SiliconFlowConfig, model string, messages []chatMessage, max
 	}
 	reqBody, _ := json.Marshal(req)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(parent, 150*time.Second)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", cfg.BaseURL, bytes.NewReader(reqBody))
 	if err != nil {
@@ -351,6 +379,7 @@ func streamLLM(cfg *SiliconFlowConfig, model string, messages []chatMessage, max
 	}
 
 	reader := bufio.NewReader(resp.Body)
+	finished := false
 	for {
 		line, err := reader.ReadString('\n')
 		line = strings.TrimSpace(line)
@@ -362,13 +391,20 @@ func streamLLM(cfg *SiliconFlowConfig, model string, messages []chatMessage, max
 				}
 				var chunk struct {
 					Choices []struct {
-						Delta struct {
+						FinishReason string `json:"finish_reason"`
+						Delta        struct {
 							Content string `json:"content"`
 						} `json:"delta"`
 					} `json:"choices"`
 				}
 				if json.Unmarshal([]byte(data), &chunk) == nil {
 					for _, c := range chunk.Choices {
+						if c.FinishReason == "length" {
+							return fmt.Errorf("模型输出达到长度上限，回答未完整生成")
+						}
+						if c.FinishReason == "stop" {
+							finished = true
+						}
 						if c.Delta.Content != "" {
 							once.Do(func() { close(firstDelta) })
 							onDelta(c.Delta.Content)
@@ -379,7 +415,10 @@ func streamLLM(cfg *SiliconFlowConfig, model string, messages []chatMessage, max
 		}
 		if err != nil {
 			if err == io.EOF {
-				return nil
+				if finished {
+					return nil
+				}
+				return fmt.Errorf("模型接口连接提前结束，未收到完成标记")
 			}
 			return err
 		}
@@ -414,16 +453,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	// 2. 建立 SSE 流
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Cache-Control", "no-cache, no-store, no-transform")
 	w.Header().Set("X-Accel-Buffering", "no")
+	send, stopHeartbeat := startEventStream(r.Context(), w, 10*time.Second)
+	defer stopHeartbeat()
 
-	writeSSE(w, "meta", map[string]interface{}{
+	send("meta", map[string]interface{}{
 		"query": req.Query,
 		"mode":  req.Mode,
 		"kb":    s.kb.Name,
 	})
-	writeSSE(w, "references", refs)
+	send("references", refs)
 
 	// 3. 构建消息并流式生成
 	messages := []chatMessage{
@@ -434,36 +474,49 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	models := append([]string{s.cfg.SiliconFlow.Model}, s.cfg.SiliconFlow.FallbackModels...)
 	var lastErr error
 	for _, model := range models {
+		if r.Context().Err() != nil {
+			return
+		}
 		var raw strings.Builder
 		sent := 0
-		err := streamLLM(&s.cfg.SiliconFlow, model, messages, maxTokensForMode(req.Mode), 45*time.Second, func(delta string) {
+		lastPreview := ""
+		err := streamLLM(r.Context(), &s.cfg.SiliconFlow, model, messages, maxTokensForMode(req.Mode), 45*time.Second, func(delta string) {
 			raw.WriteString(delta)
 			text := raw.String()
 			end := len(text)
-			// 讲解照常流式显示；表格部分收齐后合并去重，只显示一次。
+			// 讲解逐字输出；表格每完成一行就替换为同一张累积表。
 			if loc := tableStart.FindStringIndex(text); loc != nil {
 				end = loc[0]
+
 			}
 			if end > sent {
-				writeSSE(w, "delta", map[string]string{"t": text[sent:end]})
+				send("delta", map[string]string{"t": text[sent:end]})
 				sent = end
+			}
+			if strings.Contains(delta, "\n") {
+				preview := previewAnswer(text)
+				if preview != lastPreview && strings.Contains(preview, "| --- |") {
+					send("answer", map[string]string{"t": preview})
+					lastPreview = preview
+				}
 			}
 		})
 		if err == nil {
 			var answer string
 			answer, err = normalizeAnswer(raw.String(), len(refs))
 			if err == nil {
-				writeSSE(w, "answer", map[string]string{"t": answer})
-				writeSSE(w, "done", map[string]interface{}{"model": model, "length": len(answer)})
+				send("answer", map[string]string{"t": answer})
+				send("done", map[string]interface{}{"model": model, "length": len(answer)})
 				return
 			}
 		}
 		lastErr = err
-		writeSSE(w, "retry", map[string]string{"model": model})
+		log.Printf("model attempt failed: model=%q err=%v", model, err)
+		send("retry", map[string]string{"model": model})
 	}
 
 	log.Printf("search failed: query=%q err=%v", req.Query, lastErr)
-	writeSSE(w, "error", map[string]string{
+	send("error", map[string]string{
 		"message": "AI 服务暂时不可用，请稍后重试或检查 SiliconFlow API 配置。",
 	})
 }

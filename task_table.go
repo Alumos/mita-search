@@ -77,15 +77,24 @@ func (kb *KnowledgeBase) taskReferences(query, mode string) []ScoredItem {
 		refs = append(refs, ScoredItem{Item: item, Score: score})
 		seen[item.ID] = true
 	}
+	limit := 12
+	if mode == "research" {
+		limit = 24
+	} else if mode != "brief" {
+		limit = 18
+	}
 	for _, r := range ranked {
 		add(r.Item, r.Score)
-		if len(refs) >= topKForMode(mode) {
+		if len(refs) >= limit {
 			break
 		}
 	}
-	// 所有已有事实条目均可供模型选材，不再被少量结构化模板素材限制。
+	// 保留已有两行及自动驾驶阶段所需资料，扩展内容由关键词排名决定。
 	for _, item := range kb.Items {
-		add(item, 0)
+		switch item.ID {
+		case "network-control", "traction-system", "carbody-design", "bogie-system", "advantage-safety", "intelligent-sensing", "auto-drive", "jingzhang-ato":
+			add(item, 0)
+		}
 	}
 	return refs
 }
@@ -178,4 +187,53 @@ func normalizeAnswer(raw string, referenceCount int) (string, error) {
 		return "", fmt.Errorf("回答包含不适合展示的教学提示")
 	}
 	return answer, nil
+}
+
+// 只展示已收齐的完整行；重复表头和数据行合并到一张表，未完成行等待下个增量。
+func previewAnswer(raw string) string {
+	end := strings.LastIndex(raw, "\n")
+	if end < 0 {
+		return ""
+	}
+	lines := strings.Split(raw[:end], "\n")
+	prose := []string{}
+	rows := []string{}
+	seen := map[string]bool{}
+	inTable := false
+	for _, line := range lines {
+		cells := parseTableRow(line)
+		if len(cells) == 3 && strings.Join(cells, "|") == "自主建造|自主研发|优点" {
+			inTable = true
+			continue
+		}
+		if !inTable {
+			prose = append(prose, line)
+			continue
+		}
+		if len(cells) != 3 {
+			continue
+		}
+		sep := true
+		for _, c := range cells {
+			if strings.Trim(c, "-:") != "" {
+				sep = false
+			}
+		}
+		if sep {
+			continue
+		}
+		if cells[0] == "" || cells[1] == "" || cells[2] == "" {
+			continue
+		}
+		key := strings.ReplaceAll(citation.ReplaceAllString(strings.Join(cells, "|"), ""), "**", "")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, "| "+strings.Join(cells, " | ")+" |")
+	}
+	if !inTable {
+		return strings.Join(prose, "\n")
+	}
+	return strings.TrimSpace(strings.Join(prose, "\n")) + "\n\n| 自主建造 | 自主研发 | 优点 |\n| --- | --- | --- |\n" + strings.Join(rows, "\n") + "\n"
 }

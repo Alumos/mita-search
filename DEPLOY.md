@@ -74,3 +74,12 @@ docker compose up -d
 | `SILICONFLOW_FALLBACK_MODELS` | `Qwen/Qwen2.5-72B-Instruct,Qwen/Qwen2.5-7B-Instruct`；设置为空可关闭备用模型 |
 
 容器内部固定使用 8066 端口。知识库更新应修改源码中的 `knowledge/knowledge_base.json` 并推送，等待新镜像发布后更新编排。健康接口只验证服务存活，不会调用收费的 AI API。
+
+
+## CDN / EdgeOne 流式搜索
+
+`/api/search` 返回 SSE 长连接。为该路径设置不缓存、禁用响应内容转换和缓冲；如有 Nginx/1Panel 反向代理，配置 `proxy_buffering off; proxy_cache off; proxy_read_timeout 300s;`。CDN 的源站响应超时也应按长连接场景配置；若仍出现 `ERR_HTTP2_PROTOCOL_ERROR`，对比直连源站和 CDN 的表现，并检查 CDN 请求日志。
+
+应用每10秒发送一次 `ping` 保活，表格完整行会逐行出现；单次模型请求最多150秒，浏览器断开时取消上游请求。容器健康检查只证明服务启动正常，不代表模型接口、额度和 CDN 流式链路均正常。诊断时使用 `docker compose logs --tail=100 mita-search`，可查看每次模型尝试的错误原因。
+
+镜像代理的 `latest` 可能存在同步延迟。排查更新是否生效时优先使用本次 GitHub Actions 发布的 `sha-<7位提交号>` 标签，避免旧版本仍在运行。
