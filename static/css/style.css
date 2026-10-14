@@ -63,6 +63,7 @@ html, body {
 .logo-train { flex-shrink: 0; filter: drop-shadow(0 4px 10px rgba(217, 43, 43, 0.25)); }
 
 .logo-name {
+  white-space: nowrap;
   font-size: 58px;
   font-weight: 800;
   letter-spacing: 4px;
@@ -442,6 +443,8 @@ html, body {
   .logo-name { font-size: 44px; }
 }
 @media (max-width: 640px) {
+  .logo-main { flex-wrap: wrap; gap: 10px; }
+  .logo-name { font-size: clamp(30px, 8vw, 44px); letter-spacing: 2px; }
   .top-bar { padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
   .top-logo { font-size: 16px; }
   .top-search { flex-basis: 100%; max-width: none; }
